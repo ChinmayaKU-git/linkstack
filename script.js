@@ -1,0 +1,332 @@
+// import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+// import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+// import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+import { createIcons, LayoutGrid, Star, Clock, Pin, Plus, Search, List, ChevronRight, Folder, Globe, Settings, Bell, X, Trash2, Edit3, Tag, FileText, ExternalLink, AlertCircle } from "https://unpkg.com/lucide@latest?module";
+
+// --- Configuration & Initialization ---
+// const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+// const app = initializeApp(firebaseConfig);
+// const auth = getAuth(app);
+// const db = getFirestore(app);
+const appId = window.__app_id || 'linkstack-web-v1';
+
+// --- State Management ---
+let user = { uid: 'local-user' };
+let links = [];
+let activeTab = 'All Links';
+let viewMode = 'grid';
+let searchQuery = '';
+let selectedLink = null;
+let linkToDeleteId = null;
+
+// --- Authentication ---
+// Simulate auth
+// onAuthStateChanged(auth, (u) => {
+//     if (u) {
+//         user = u;
+//         const avatarEl = document.getElementById('user-avatar');
+//         const userIdEl = document.getElementById('user-id');
+//         if (avatarEl) avatarEl.innerText = u.uid.slice(0, 2).toUpperCase();
+//         if (userIdEl) userIdEl.innerText = `User ${u.uid.slice(0, 5)}`;
+//         startDataListener();
+//     } else {
+//         signInAnonymously(auth).catch(console.error);
+//     }
+// });
+
+// Set dummy user
+const avatarEl = document.getElementById('user-avatar');
+const userIdEl = document.getElementById('user-id');
+if (avatarEl) avatarEl.innerText = user.uid.slice(0, 2).toUpperCase();
+if (userIdEl) userIdEl.innerText = `User ${user.uid.slice(0, 5)}`;
+startDataListener();
+
+// --- Data Layer ---
+function startDataListener() {
+    // const linksRef = collection(db, 'artifacts', appId, 'users', user.uid, 'links');
+    // onSnapshot(linksRef, (snapshot) => {
+    //     links = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    //     renderUI();
+    //     document.getElementById('app').classList.remove('opacity-0');
+    // }, (err) => console.error("Firestore Error:", err));
+
+    // Load from localStorage
+    const stored = localStorage.getItem('linkstack-links');
+    if (stored) {
+        links = JSON.parse(stored);
+    }
+    renderUI();
+    document.getElementById('app').classList.remove('opacity-0');
+}
+
+function saveLinks() {
+    localStorage.setItem('linkstack-links', JSON.stringify(links));
+}
+
+// --- Global UI Exporters ---
+// We attach these to window so HTML 'onclick' can find them
+window.toggleModal = (id, show) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', !show);
+};
+
+window.setActiveTab = (id) => {
+    activeTab = id;
+    renderUI();
+};
+
+window.setViewMode = (mode) => {
+    viewMode = mode;
+    const gBtn = document.getElementById('btn-grid');
+    const lBtn = document.getElementById('btn-list');
+    if (gBtn) gBtn.classList.toggle('bg-slate-700', mode === 'grid');
+    if (gBtn) gBtn.classList.toggle('text-slate-500', mode !== 'grid');
+    if (lBtn) lBtn.classList.toggle('bg-slate-700', mode === 'list');
+    if (lBtn) lBtn.classList.toggle('text-slate-500', mode !== 'list');
+    renderFeed();
+};
+
+window.selectLink = (id) => {
+    selectedLink = links.find(l => l.id === id);
+    renderUI();
+};
+
+window.closeInspector = () => {
+    selectedLink = null;
+    const insp = document.getElementById('inspector');
+    if (insp) insp.style.width = '0';
+    renderUI();
+};
+
+window.updateNote = (id, val) => {
+    const link = links.find(l => l.id === id);
+    if (link) {
+        link.note = val;
+        saveLinks();
+    }
+};
+
+window.toggleField = (id, field, val) => {
+    const link = links.find(l => l.id === id);
+    if (link) {
+        link[field] = val;
+        saveLinks();
+        renderUI();
+    }
+};
+
+window.promptDelete = (id) => {
+    linkToDeleteId = id;
+    window.toggleModal('delete-modal', true);
+};
+
+// --- Rendering Logic ---
+function renderUI() {
+    renderSidebar();
+    renderFeed();
+    if (selectedLink) renderInspector();
+    
+    // Refresh Icons
+    createIcons({ icons: { LayoutGrid, Star, Clock, Pin, Plus, Search, List, ChevronRight, Folder, Globe, Settings, Bell, X, Trash2, Edit3, Tag, FileText, ExternalLink, AlertCircle } });
+}
+
+function renderSidebar() {
+    const smartFilters = [
+        { id: 'All Links', icon: 'layout-grid', count: links.length },
+        { id: 'Favourites', icon: 'star', count: links.filter(l => l.fav).length },
+        { id: 'Link Later', icon: 'clock', count: links.filter(l => l.later).length },
+        { id: 'Pinned', icon: 'pin', count: links.filter(l => l.pinned).length }
+    ];
+
+    const filterContainer = document.getElementById('smart-filters');
+    if (filterContainer) {
+        filterContainer.innerHTML = smartFilters.map(f => `
+            <button onclick="setActiveTab('${f.id}')" class="w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors group ${activeTab === f.id ? 'bg-indigo-600/20 text-indigo-400' : 'text-slate-400 hover:bg-slate-800'}">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="${f.icon}" class="w-4 h-4"></i>
+                    <span class="text-sm font-medium">${f.id}</span>
+                </div>
+                <span class="text-xs opacity-50">${f.count}</span>
+            </button>
+        `).join('');
+    }
+
+    const uniqueFolders = [...new Set(links.map(l => l.folder || 'General'))].sort();
+    const folderList = document.getElementById('folders-list');
+    if (folderList) {
+        folderList.innerHTML = uniqueFolders.map(f => `
+            <div onclick="setActiveTab('${f}')" class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-colors ${activeTab === f ? 'bg-indigo-600/20 text-indigo-400' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'}">
+                <i data-lucide="chevron-right" class="w-3 h-3"></i>
+                <i data-lucide="folder" class="w-3 h-3 text-indigo-500/70"></i>
+                <span class="truncate">${f}</span>
+            </div>
+        `).join('');
+    }
+
+    const allTags = [...new Set(links.flatMap(l => l.tags || []))].sort();
+    const tagsCloud = document.getElementById('tags-cloud');
+    if (tagsCloud) {
+        tagsCloud.innerHTML = allTags.map(t => `
+            <button class="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-400 transition-colors">#${t}</button>
+        `).join('');
+    }
+}
+
+function renderFeed() {
+    const container = document.getElementById('links-grid');
+    if (!container) return;
+
+    const filtered = links.filter(l => {
+        const queryMatch = (l.title + l.url).toLowerCase().includes(searchQuery.toLowerCase());
+        let tabMatch = true;
+        if (activeTab === 'Favourites') tabMatch = l.fav;
+        else if (activeTab === 'Link Later') tabMatch = l.later;
+        else if (activeTab === 'Pinned') tabMatch = l.pinned;
+        else if (activeTab !== 'All Links') tabMatch = l.folder === activeTab;
+        return queryMatch && tabMatch;
+    });
+
+    document.getElementById('link-count').innerText = filtered.length;
+    document.getElementById('active-tab-title').innerText = activeTab;
+    
+    if (filtered.length === 0) {
+        container.innerHTML = '';
+        document.getElementById('empty-state').classList.remove('hidden');
+        return;
+    }
+    document.getElementById('empty-state').classList.add('hidden');
+
+    if (viewMode === 'grid') {
+        container.className = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5";
+        container.innerHTML = filtered.map(l => {
+            const urlObj = new URL(l.url.startsWith('http') ? l.url : `https://${l.url}`);
+            const domain = urlObj.hostname.replace('www.', '');
+            return `
+                <div onclick="selectLink('${l.id}')" class="group relative flex flex-col p-4 rounded-xl border transition-all cursor-pointer h-full ${selectedLink?.id === l.id ? 'bg-indigo-600/10 border-indigo-500/50' : 'bg-slate-800/30 border-slate-700/50 hover:border-slate-600'}">
+                    <div class="aspect-video rounded-lg bg-slate-900 mb-4 overflow-hidden border border-slate-700/50">
+                        <img src="${l.preview || 'https://images.unsplash.com/photo-1557683316-973673baf926?w=400&q=80'}" class="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity">
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex items-start justify-between">
+                            <h3 class="text-sm font-semibold text-slate-100 line-clamp-1">${l.title}</h3>
+                            ${l.fav ? '<i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400 text-amber-400"></i>' : ''}
+                        </div>
+                        <p class="text-xs text-slate-500 mb-3 truncate font-mono mt-1">${domain}</p>
+                        <div class="flex flex-wrap gap-1">
+                            ${(l.tags || []).slice(0, 3).map(t => `<span class="px-2 py-0.5 rounded bg-slate-800/50 text-[10px] text-slate-400 border border-slate-700/50">#${t}</span>`).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } else {
+        container.className = "flex flex-col border border-slate-800 rounded-xl overflow-hidden";
+        container.innerHTML = filtered.map(l => `
+            <div onclick="selectLink('${l.id}')" class="flex items-center gap-4 p-3 border-b border-slate-800/50 hover:bg-slate-800/40 cursor-pointer ${selectedLink?.id === l.id ? 'bg-indigo-600/10' : ''}">
+                <div class="w-8 h-8 rounded bg-slate-700 flex items-center justify-center shrink-0">
+                    <i data-lucide="globe" class="w-4 h-4 text-slate-500"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h3 class="text-sm font-medium text-slate-200 truncate">${l.title}</h3>
+                    <p class="text-[10px] text-slate-500 font-mono truncate">${l.url}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                     ${l.fav ? '<i data-lucide="star" class="w-4 h-4 text-amber-400 fill-current"></i>' : ''}
+                     <i data-lucide="chevron-right" class="w-4 h-4 text-slate-700"></i>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+function renderInspector() {
+    if (!selectedLink) return;
+    const inspector = document.getElementById('inspector');
+    if (!inspector) return;
+    
+    inspector.style.width = '384px';
+    inspector.innerHTML = `
+        <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+            <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Inspector</span>
+            <div class="flex items-center gap-1">
+                <button onclick="promptDelete('${selectedLink.id}')" class="p-2 text-slate-500 hover:text-red-400 hover:bg-slate-800 rounded-md transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                <button onclick="closeInspector()" class="p-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800 rounded-md transition-colors"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>
+        </div>
+        <div class="flex-1 overflow-y-auto p-6 space-y-8">
+            <div>
+                <img src="${selectedLink.preview}" class="w-full aspect-video rounded-xl object-cover border border-slate-800 mb-4 bg-slate-950">
+                <h2 class="text-lg font-bold text-slate-100 leading-tight">${selectedLink.title}</h2>
+                <a href="${selectedLink.url}" target="_blank" class="text-xs text-indigo-400 font-mono break-all hover:underline block mt-2">${selectedLink.url}</a>
+            </div>
+            <div>
+                <div class="flex items-center gap-2 text-slate-400 mb-3 text-xs font-bold uppercase tracking-widest"><i data-lucide="tag" class="w-3.5 h-3.5"></i> Tags</div>
+                <div class="flex flex-wrap gap-2">
+                    ${(selectedLink.tags || []).map(t => `<span class="px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300">#${t}</span>`).join('')}
+                    ${(!selectedLink.tags || selectedLink.tags.length === 0) ? '<span class="text-xs text-slate-600 italic">No tags</span>' : ''}
+                </div>
+            </div>
+            <div class="flex flex-col flex-1">
+                <div class="flex items-center gap-2 text-slate-400 mb-3 text-xs font-bold uppercase tracking-widest"><i data-lucide="file-text" class="w-3.5 h-3.5"></i> Notes</div>
+                <textarea onblur="updateNote('${selectedLink.id}', this.value)" class="w-full h-40 bg-slate-950/50 rounded-xl border border-slate-800 p-4 font-mono text-xs text-slate-400 outline-none focus:border-indigo-500/50 resize-none">${selectedLink.note || ''}</textarea>
+            </div>
+        </div>
+        <div class="p-4 border-t border-slate-800 bg-slate-900/50 grid grid-cols-2 gap-3">
+            <button onclick="toggleField('${selectedLink.id}', 'later', ${!selectedLink.later})" class="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all border ${selectedLink.later ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}">
+                <i data-lucide="clock" class="w-4 h-4"></i> ${selectedLink.later ? 'Saved' : 'Link Later'}
+            </button>
+            <button onclick="toggleField('${selectedLink.id}', 'fav', ${!selectedLink.fav})" class="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all border ${selectedLink.fav ? 'bg-amber-600 border-amber-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}">
+                <i data-lucide="star" class="w-4 h-4"></i> Favourite
+            </button>
+        </div>
+    `;
+}
+
+// --- Event Handlers ---
+document.getElementById('confirm-delete-btn').onclick = () => {
+    if (!linkToDeleteId) return;
+    links = links.filter(l => l.id !== linkToDeleteId);
+    saveLinks();
+    if (selectedLink?.id === linkToDeleteId) window.closeInspector();
+    window.toggleModal('delete-modal', false);
+    linkToDeleteId = null;
+    renderUI();
+};
+
+document.getElementById('global-search').oninput = (e) => {
+    searchQuery = e.target.value;
+    renderFeed();
+};
+
+document.getElementById('add-link-form').onsubmit = (e) => {
+    e.preventDefault();
+    const urlInput = document.getElementById('form-url').value;
+    const title = document.getElementById('form-title').value;
+    const folder = document.getElementById('form-folder').value || 'General';
+    const tags = document.getElementById('form-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+
+    const finalUrl = urlInput.startsWith('http') ? urlInput : `https://${urlInput}`;
+
+    const newLink = {
+        id: Date.now().toString(),
+        url: finalUrl, title, folder, tags,
+        fav: false, pinned: false, later: false, note: '',
+        createdAt: new Date().toISOString(),
+        preview: `https://api.microlink.io/?url=${encodeURIComponent(finalUrl)}&screenshot=true&embed=screenshot.url`
+    };
+
+    links.push(newLink);
+    saveLinks();
+    window.toggleModal('add-modal', false);
+    e.target.reset();
+    renderUI();
+};
+
+// --- Command Palette / Keybinds ---
+window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        const searchInput = document.getElementById('global-search');
+        if (searchInput) searchInput.focus();
+    }
+});
