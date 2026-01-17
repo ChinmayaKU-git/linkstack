@@ -13,7 +13,7 @@ const appId = window.__app_id || 'linkstack-web-v1';
 // --- State Management ---
 let user = { uid: 'local-user' };
 let links = [];
-let activeTab = 'All Links';
+let activeTab = 'All Items';
 let viewMode = 'grid';
 let searchQuery = '';
 let selectedLink = null;
@@ -70,6 +70,21 @@ window.toggleModal = (id, show) => {
     if (el) el.classList.toggle('hidden', !show);
 };
 
+window.toggleItemType = () => {
+    const type = document.querySelector('input[name="item-type"]:checked').value;
+    document.getElementById('url-field').classList.toggle('hidden', type === 'file');
+    document.getElementById('file-field').classList.toggle('hidden', type === 'link');
+    const urlInput = document.getElementById('form-url');
+    const fileInput = document.getElementById('form-file');
+    if (type === 'link') {
+        urlInput.required = true;
+        fileInput.required = false;
+    } else {
+        urlInput.required = false;
+        fileInput.required = true;
+    }
+};
+
 window.setActiveTab = (id) => {
     activeTab = id;
     renderUI();
@@ -96,6 +111,16 @@ window.closeInspector = () => {
     const insp = document.getElementById('inspector');
     if (insp) insp.style.width = '0';
     renderUI();
+};
+
+window.downloadFile = (id) => {
+    const item = links.find(l => l.id === id);
+    if (item && item.type === 'file') {
+        const a = document.createElement('a');
+        a.href = item.fileData;
+        a.download = item.fileName;
+        a.click();
+    }
 };
 
 window.updateNote = (id, val) => {
@@ -132,7 +157,7 @@ function renderUI() {
 
 function renderSidebar() {
     const smartFilters = [
-        { id: 'All Links', icon: 'layout-grid', count: links.length },
+        { id: 'All Items', icon: 'layout-grid', count: links.length },
         { id: 'Favourites', icon: 'star', count: links.filter(l => l.fav).length },
         { id: 'Link Later', icon: 'clock', count: links.filter(l => l.later).length },
         { id: 'Pinned', icon: 'pin', count: links.filter(l => l.pinned).length }
@@ -172,6 +197,16 @@ function renderSidebar() {
     }
 }
 
+function getFileIcon(mimeType) {
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'music';
+    if (mimeType === 'application/pdf') return 'file-text';
+    if (mimeType.includes('word') || mimeType.includes('document')) return 'file-text';
+    if (mimeType.includes('sheet') || mimeType.includes('excel')) return 'file-text';
+    return 'file';
+}
+
 function renderFeed() {
     const container = document.getElementById('links-grid');
     if (!container) return;
@@ -199,12 +234,21 @@ function renderFeed() {
     if (viewMode === 'grid') {
         container.className = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5";
         container.innerHTML = filtered.map(l => {
-            const urlObj = new URL(l.url.startsWith('http') ? l.url : `https://${l.url}`);
-            const domain = urlObj.hostname.replace('www.', '');
+            let previewHtml = '';
+            if (l.type === 'file') {
+                const icon = getFileIcon(l.fileType);
+                previewHtml = `<div class="w-full h-full flex items-center justify-center bg-slate-800 rounded-lg">
+                    <i data-lucide="${icon}" class="w-12 h-12 text-slate-400"></i>
+                </div>`;
+            } else {
+                previewHtml = `<img src="${l.preview || 'https://images.unsplash.com/photo-1557683316-973673baf926?w=400&q=80'}" class="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity">`;
+            }
+            const urlObj = l.type === 'link' ? new URL(l.url.startsWith('http') ? l.url : `https://${l.url}`) : null;
+            const domain = l.type === 'link' ? urlObj.hostname.replace('www.', '') : `${(l.fileSize / 1024).toFixed(1)} KB`;
             return `
                 <div onclick="selectLink('${l.id}')" class="group relative flex flex-col p-4 rounded-xl border transition-all cursor-pointer h-full ${selectedLink?.id === l.id ? 'bg-indigo-600/10 border-indigo-500/50' : 'bg-slate-800/30 border-slate-700/50 hover:border-slate-600'}">
                     <div class="aspect-video rounded-lg bg-slate-900 mb-4 overflow-hidden border border-slate-700/50">
-                        <img src="${l.preview || 'https://images.unsplash.com/photo-1557683316-973673baf926?w=400&q=80'}" class="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity">
+                        ${previewHtml}
                     </div>
                     <div class="flex-1">
                         <div class="flex items-start justify-between">
@@ -221,21 +265,25 @@ function renderFeed() {
         }).join('');
     } else {
         container.className = "flex flex-col border border-slate-800 rounded-xl overflow-hidden";
-        container.innerHTML = filtered.map(l => `
-            <div onclick="selectLink('${l.id}')" class="flex items-center gap-4 p-3 border-b border-slate-800/50 hover:bg-slate-800/40 cursor-pointer ${selectedLink?.id === l.id ? 'bg-indigo-600/10' : ''}">
-                <div class="w-8 h-8 rounded bg-slate-700 flex items-center justify-center shrink-0">
-                    <i data-lucide="globe" class="w-4 h-4 text-slate-500"></i>
+        container.innerHTML = filtered.map(l => {
+            const icon = l.type === 'file' ? getFileIcon(l.fileType) : 'globe';
+            const displayUrl = l.type === 'file' ? `${(l.fileSize / 1024).toFixed(1)} KB • ${l.fileType}` : l.url;
+            return `
+                <div onclick="selectLink('${l.id}')" class="flex items-center gap-4 p-3 border-b border-slate-800/50 hover:bg-slate-800/40 cursor-pointer ${selectedLink?.id === l.id ? 'bg-indigo-600/10' : ''}">
+                    <div class="w-8 h-8 rounded bg-slate-700 flex items-center justify-center shrink-0">
+                        <i data-lucide="${icon}" class="w-4 h-4 text-slate-500"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <h3 class="text-sm font-medium text-slate-200 truncate">${l.title}</h3>
+                        <p class="text-[10px] text-slate-500 font-mono truncate">${displayUrl}</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                         ${l.fav ? '<i data-lucide="star" class="w-4 h-4 text-amber-400 fill-current"></i>' : ''}
+                         <i data-lucide="chevron-right" class="w-4 h-4 text-slate-700"></i>
+                    </div>
                 </div>
-                <div class="flex-1 min-w-0">
-                    <h3 class="text-sm font-medium text-slate-200 truncate">${l.title}</h3>
-                    <p class="text-[10px] text-slate-500 font-mono truncate">${l.url}</p>
-                </div>
-                <div class="flex items-center gap-2">
-                     ${l.fav ? '<i data-lucide="star" class="w-4 h-4 text-amber-400 fill-current"></i>' : ''}
-                     <i data-lucide="chevron-right" class="w-4 h-4 text-slate-700"></i>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 }
 
@@ -245,6 +293,13 @@ function renderInspector() {
     if (!inspector) return;
     
     inspector.style.width = '384px';
+    let previewHtml = '';
+    if (selectedLink.type === 'file') {
+        const icon = getFileIcon(selectedLink.fileType);
+        previewHtml = `<div class="w-full aspect-video rounded-xl flex items-center justify-center bg-slate-800 mb-4"><i data-lucide="${icon}" class="w-16 h-16 text-slate-400"></i></div>`;
+    } else {
+        previewHtml = `<img src="${selectedLink.preview}" class="w-full aspect-video rounded-xl object-cover border border-slate-800 mb-4 bg-slate-950">`;
+    }
     inspector.innerHTML = `
         <div class="p-4 border-b border-slate-800 flex items-center justify-between">
             <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Inspector</span>
@@ -255,9 +310,9 @@ function renderInspector() {
         </div>
         <div class="flex-1 overflow-y-auto p-6 space-y-8">
             <div>
-                <img src="${selectedLink.preview}" class="w-full aspect-video rounded-xl object-cover border border-slate-800 mb-4 bg-slate-950">
+                ${previewHtml}
                 <h2 class="text-lg font-bold text-slate-100 leading-tight">${selectedLink.title}</h2>
-                <a href="${selectedLink.url}" target="_blank" class="text-xs text-indigo-400 font-mono break-all hover:underline block mt-2">${selectedLink.url}</a>
+                ${selectedLink.type === 'link' ? `<a href="${selectedLink.url}" target="_blank" class="text-xs text-indigo-400 font-mono break-all hover:underline block mt-2">${selectedLink.url}</a>` : `<p class="text-xs text-slate-400 font-mono mt-2">${selectedLink.fileName} • ${(selectedLink.fileSize / 1024).toFixed(1)} KB</p>`}
             </div>
             <div>
                 <div class="flex items-center gap-2 text-slate-400 mb-3 text-xs font-bold uppercase tracking-widest"><i data-lucide="tag" class="w-3.5 h-3.5"></i> Tags</div>
@@ -270,6 +325,13 @@ function renderInspector() {
                 <div class="flex items-center gap-2 text-slate-400 mb-3 text-xs font-bold uppercase tracking-widest"><i data-lucide="file-text" class="w-3.5 h-3.5"></i> Notes</div>
                 <textarea onblur="updateNote('${selectedLink.id}', this.value)" class="w-full h-40 bg-slate-950/50 rounded-xl border border-slate-800 p-4 font-mono text-xs text-slate-400 outline-none focus:border-indigo-500/50 resize-none">${selectedLink.note || ''}</textarea>
             </div>
+            ${selectedLink.type === 'file' ? `
+            <div>
+                <button onclick="downloadFile('${selectedLink.id}')" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
+                    <i data-lucide="download" class="w-4 h-4"></i> Download File
+                </button>
+            </div>
+            ` : ''}
         </div>
         <div class="p-4 border-t border-slate-800 bg-slate-900/50 grid grid-cols-2 gap-3">
             <button onclick="toggleField('${selectedLink.id}', 'later', ${!selectedLink.later})" class="flex items-center justify-center gap-2 py-2.5 rounded-lg text-xs font-bold transition-all border ${selectedLink.later ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}">
@@ -298,28 +360,61 @@ document.getElementById('global-search').oninput = (e) => {
     renderFeed();
 };
 
-document.getElementById('add-link-form').onsubmit = (e) => {
+document.getElementById('add-link-form').onsubmit = async (e) => {
     e.preventDefault();
-    const urlInput = document.getElementById('form-url').value;
+    const type = document.querySelector('input[name="item-type"]:checked').value;
     const title = document.getElementById('form-title').value;
     const folder = document.getElementById('form-folder').value || 'General';
     const tags = document.getElementById('form-tags').value.split(',').map(t => t.trim()).filter(Boolean);
 
-    const finalUrl = urlInput.startsWith('http') ? urlInput : `https://${urlInput}`;
+    if (type === 'link') {
+        const urlInput = document.getElementById('form-url').value;
+        const finalUrl = urlInput.startsWith('http') ? urlInput : `https://${urlInput}`;
 
-    const newLink = {
-        id: Date.now().toString(),
-        url: finalUrl, title, folder, tags,
-        fav: false, pinned: false, later: false, note: '',
-        createdAt: new Date().toISOString(),
-        preview: `https://api.microlink.io/?url=${encodeURIComponent(finalUrl)}&screenshot=true&embed=screenshot.url`
-    };
+        const newLink = {
+            id: Date.now().toString(),
+            type: 'link',
+            url: finalUrl, title, folder, tags,
+            fav: false, pinned: false, later: false, note: '',
+            createdAt: new Date().toISOString(),
+            preview: `https://api.microlink.io/?url=${encodeURIComponent(finalUrl)}&screenshot=true&embed=screenshot.url`
+        };
 
-    links.push(newLink);
-    saveLinks();
-    window.toggleModal('add-modal', false);
-    e.target.reset();
-    renderUI();
+        links.push(newLink);
+        saveLinks();
+        window.toggleModal('add-modal', false);
+        e.target.reset();
+        renderUI();
+    } else {
+        const fileInput = document.getElementById('form-file');
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const fileData = event.target.result;
+            const finalTitle = title || file.name;
+
+            const newFile = {
+                id: Date.now().toString(),
+                type: 'file',
+                title: finalTitle, folder, tags,
+                fav: false, pinned: false, later: false, note: '',
+                createdAt: new Date().toISOString(),
+                fileName: file.name,
+                fileType: file.type,
+                fileData: fileData,
+                fileSize: file.size
+            };
+
+            links.push(newFile);
+            saveLinks();
+            window.toggleModal('add-modal', false);
+            e.target.reset();
+            renderUI();
+        };
+        reader.readAsDataURL(file);
+    }
 };
 
 // --- Command Palette / Keybinds ---
