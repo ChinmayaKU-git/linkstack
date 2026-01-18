@@ -1,3 +1,21 @@
+/**
+ * LinkStack - A web-based link and file management application
+ *
+ * This application allows users to save, organize, and manage links and files
+ * with features like favorites, pinning, folders, tags, and search functionality.
+ * Data is stored locally in the browser's localStorage.
+ *
+ * Features:
+ * - Save links with previews
+ * - Upload and store files
+ * - Organize items into folders
+ * - Tag items for better categorization
+ * - Favorite and pin important items
+ * - Search through saved items
+ * - Grid and list view modes
+ * - Inspector panel for detailed view
+ */
+
 // import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
 // import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 // import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
@@ -11,15 +29,18 @@ import { createIcons, LayoutGrid, Star, Clock, Pin, Plus, Search, List, ChevronR
 const appId = window.__app_id || 'linkstack-web-v1';
 
 // --- State Management ---
-let user = { uid: 'local-user' };
-let links = [];
-let activeTab = 'All Items';
-let viewMode = 'grid';
-let searchQuery = '';
-let selectedLink = null;
-let linkToDeleteId = null;
+// Global application state variables
+let user = { uid: 'local-user' }; // Current user object (simulated for local storage)
+let links = []; // Array of saved links and files
+let activeTab = 'All Items'; // Currently active filter tab
+let viewMode = 'grid'; // Current view mode: 'grid' or 'list'
+let searchQuery = ''; // Current search query string
+let selectedLink = null; // Currently selected item for inspector
+let linkToDeleteId = null; // ID of item pending deletion
 
 // --- Authentication ---
+// Currently using simulated authentication for local storage mode
+// Firebase authentication code is commented out but available for future cloud sync
 // Simulate auth
 // onAuthStateChanged(auth, (u) => {
 //     if (u) {
@@ -34,7 +55,7 @@ let linkToDeleteId = null;
 //     }
 // });
 
-// Set dummy user
+// Set dummy user for local mode
 const avatarEl = document.getElementById('user-avatar');
 const userIdEl = document.getElementById('user-id');
 if (avatarEl) avatarEl.innerText = user.uid.slice(0, 2).toUpperCase();
@@ -42,6 +63,10 @@ if (userIdEl) userIdEl.innerText = `User ${user.uid.slice(0, 5)}`;
 startDataListener();
 
 // --- Data Layer ---
+/**
+ * Initializes the data listener and loads saved links from localStorage
+ * In the future, this could be replaced with Firebase real-time listeners
+ */
 function startDataListener() {
     // const linksRef = collection(db, 'artifacts', appId, 'users', user.uid, 'links');
     // onSnapshot(linksRef, (snapshot) => {
@@ -59,17 +84,28 @@ function startDataListener() {
     document.getElementById('app').classList.remove('opacity-0');
 }
 
+/**
+ * Saves the current links array to localStorage
+ */
 function saveLinks() {
     localStorage.setItem('linkstack-links', JSON.stringify(links));
 }
 
 // --- Global UI Exporters ---
-// We attach these to window so HTML 'onclick' can find them
+// Functions attached to window object for HTML onclick handlers
+/**
+ * Toggles the visibility of a modal dialog
+ * @param {string} id - The ID of the modal element
+ * @param {boolean} show - Whether to show or hide the modal
+ */
 window.toggleModal = (id, show) => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('hidden', !show);
 };
 
+/**
+ * Toggles between link and file input fields in the add item form
+ */
 window.toggleItemType = () => {
     const type = document.querySelector('input[name="item-type"]:checked').value;
     document.getElementById('url-field').classList.toggle('hidden', type === 'file');
@@ -85,11 +121,19 @@ window.toggleItemType = () => {
     }
 };
 
+/**
+ * Sets the active tab/filter and re-renders the UI
+ * @param {string} id - The ID of the tab to activate
+ */
 window.setActiveTab = (id) => {
     activeTab = id;
     renderUI();
 };
 
+/**
+ * Sets the view mode (grid or list) and updates UI accordingly
+ * @param {string} mode - Either 'grid' or 'list'
+ */
 window.setViewMode = (mode) => {
     viewMode = mode;
     const gBtn = document.getElementById('btn-grid');
@@ -101,11 +145,18 @@ window.setViewMode = (mode) => {
     renderFeed();
 };
 
+/**
+ * Selects a link for detailed view in the inspector panel
+ * @param {string} id - The ID of the link to select
+ */
 window.selectLink = (id) => {
     selectedLink = links.find(l => l.id === id);
     renderUI();
 };
 
+/**
+ * Closes the inspector panel and deselects the current link
+ */
 window.closeInspector = () => {
     selectedLink = null;
     const insp = document.getElementById('inspector');
@@ -113,6 +164,10 @@ window.closeInspector = () => {
     renderUI();
 };
 
+/**
+ * Downloads a file item
+ * @param {string} id - The ID of the file to download
+ */
 window.downloadFile = (id) => {
     const item = links.find(l => l.id === id);
     if (item && item.type === 'file') {
@@ -123,6 +178,11 @@ window.downloadFile = (id) => {
     }
 };
 
+/**
+ * Updates the note for a specific link
+ * @param {string} id - The ID of the link
+ * @param {string} val - The new note content
+ */
 window.updateNote = (id, val) => {
     const link = links.find(l => l.id === id);
     if (link) {
@@ -131,6 +191,12 @@ window.updateNote = (id, val) => {
     }
 };
 
+/**
+ * Toggles a boolean field (fav, pinned, later) for a link
+ * @param {string} id - The ID of the link
+ * @param {string} field - The field name to toggle
+ * @param {boolean} val - The new value
+ */
 window.toggleField = (id, field, val) => {
     const link = links.find(l => l.id === id);
     if (link) {
@@ -140,12 +206,19 @@ window.toggleField = (id, field, val) => {
     }
 };
 
+/**
+ * Prompts for deletion of a link
+ * @param {string} id - The ID of the link to delete
+ */
 window.promptDelete = (id) => {
     linkToDeleteId = id;
     window.toggleModal('delete-modal', true);
 };
 
 // --- Rendering Logic ---
+/**
+ * Main UI rendering function - updates all UI components
+ */
 function renderUI() {
     renderSidebar();
     renderFeed();
@@ -155,6 +228,9 @@ function renderUI() {
     createIcons({ icons: { LayoutGrid, Star, Clock, Pin, Plus, Search, List, ChevronRight, Folder, Globe, Settings, Bell, X, Trash2, Edit3, Tag, FileText, ExternalLink, AlertCircle } });
 }
 
+/**
+ * Renders the sidebar with smart filters, folders, and tags
+ */
 function renderSidebar() {
     const smartFilters = [
         { id: 'All Items', icon: 'layout-grid', count: links.length },
@@ -197,6 +273,11 @@ function renderSidebar() {
     }
 }
 
+/**
+ * Returns an appropriate Lucide icon name based on MIME type
+ * @param {string} mimeType - The MIME type of the file
+ * @returns {string} The icon name to use
+ */
 function getFileIcon(mimeType) {
     if (mimeType.startsWith('image/')) return 'image';
     if (mimeType.startsWith('video/')) return 'video';
@@ -207,6 +288,9 @@ function getFileIcon(mimeType) {
     return 'file';
 }
 
+/**
+ * Renders the main feed of links/files based on current filters and view mode
+ */
 function renderFeed() {
     const container = document.getElementById('links-grid');
     if (!container) return;
@@ -287,6 +371,9 @@ function renderFeed() {
     }
 }
 
+/**
+ * Renders the inspector panel with detailed information about the selected link
+ */
 function renderInspector() {
     if (!selectedLink) return;
     const inspector = document.getElementById('inspector');
@@ -345,6 +432,9 @@ function renderInspector() {
 }
 
 // --- Event Handlers ---
+/**
+ * Handles the confirmation of link deletion
+ */
 document.getElementById('confirm-delete-btn').onclick = () => {
     if (!linkToDeleteId) return;
     links = links.filter(l => l.id !== linkToDeleteId);
@@ -355,11 +445,17 @@ document.getElementById('confirm-delete-btn').onclick = () => {
     renderUI();
 };
 
+/**
+ * Handles search input changes
+ */
 document.getElementById('global-search').oninput = (e) => {
     searchQuery = e.target.value;
     renderFeed();
 };
 
+/**
+ * Handles form submission for adding new links or files
+ */
 document.getElementById('add-link-form').onsubmit = async (e) => {
     e.preventDefault();
     const type = document.querySelector('input[name="item-type"]:checked').value;
@@ -418,6 +514,9 @@ document.getElementById('add-link-form').onsubmit = async (e) => {
 };
 
 // --- Command Palette / Keybinds ---
+/**
+ * Global keyboard shortcuts for enhanced user experience
+ */
 window.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
